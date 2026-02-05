@@ -5,21 +5,125 @@ output:
     keep_md: true
 ---
 
+```{r}
+library(knitr)
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+opts_chunk$set(echo = TRUE)
+options(scipen=999)
+```
+
 
 ## Loading and preprocessing the data
 
+The code below will read in the data from the zip file and perform basic data processing. The values in the date column were originally class character and were converted to date classes. We also calculate the percentage of NA values in the steps variable
+```{r}
+#Read in the csv from the zip file
+df <- read.csv(unz("activity.zip", "activity.csv"))
 
+#The date is currently a chr - convert to date
+df$date <- ymd(df$date)
+
+#head(df) shows proportion of NA values in steps
+mean(is.na(df$steps))
+```
+About 13% of the entries in the steps column are NA. 
 
 ## What is mean total number of steps taken per day?
 
+The following code shows the mean and median number of steps taken per day. The data is given in 5 minute intervals. In order to find the total number of steps in a day, all the steps are summed for a single day - this is stored in a new data frame called dfsteps. The mean and median are then calculated on this new data frame.
 
+Of note, many days have only NA values for steps, such as 2012-10-01. The value of steps for these days was calculated to be 0 as all the values were NA. 
+
+A histogram of total steps taken every day is also shown below
+```{r}
+dfsteps <- df %>% group_by(date) %>% summarize(totalsteps = sum(steps, na.rm = TRUE))
+
+hist(dfsteps$totalsteps, breaks = 15)
+
+stepsmean <- mean(dfsteps$totalsteps, na.rm = TRUE)
+stepsmedian <- median(dfsteps$totalsteps, na.rm = TRUE)
+```
+
+The mean steps per day is `r stepsmean`. The median steps per day is `r stepsmedian`.
 
 ## What is the average daily activity pattern?
+To calculate the average daily activity pattern, the data is grouped by each 5 minute interval, and then the mean number of steps taken during each 5 minute interval is calculated. The graph below shows the average number of steps taken during each interval averaged across all days. 
 
+```{r}
+dfactivity <- df %>% group_by(interval) %>% 
+  summarize(meansteps = mean(steps, na.rm = TRUE))
 
+#Create activity graph
+with(dfactivity, plot(interval, meansteps, type = "l"))
+
+#Find max number of steps in dfactivity
+maxsteps <- max(dfactivity$meansteps, na.rm = TRUE)
+
+#Find interval where maxsteps occurs
+maxinterval <- dfactivity[which(dfactivity$meansteps == maxsteps), ]$interval
+
+abline(v = maxinterval, col = "red", lwd = 4)
+```
+
+The 5- minute interval at which the maximum average number of steps occurs is `r maxinterval`, indicated by the red line in the graph above. 
 
 ## Imputing missing values
+The below code calculates the number of NA values in the steps variable.
 
+The code also imputes data for NA values. Any NA value will be replaced by the average number of steps for that 5-minute interval averaged across all days. 
+```{r}
 
+numna <- length(is.na(df$steps))
 
+#Go through all of df$steps
+#If a value is NA, need to link it to what 5-minute interval it is
+#I know the mean number of steps for each 5-minute interval already
+#Maybe I can feed it into a function? 
+#Or maybe I can use base R syntax to match it - I think this makes sense
+
+for(i in 1:length(df$steps)){
+  
+  if(is.na(df$steps[i])){
+    
+    #If the steps value is NA, will scan through dfactivity and find the 
+    #matching interval where the NA occurs - then sets the value of steps 
+    #to the calculated mean number of steps for that interval
+    df$steps[i] <- dfactivity[dfactivity$interval == df$interval[i], 2][[1]]
+    
+  }
+  
+}
+
+newdf <- df %>% group_by(date) %>% summarize(totalsteps = sum(steps))
+
+hist(newdf$totalsteps, breaks = 15)
+
+newmean <- mean(newdf$totalsteps)
+newmedian <- median(newdf$totalsteps)
+```
+
+The number of NA values in the steps variable is `r numna`.
+
+After imputing the data, the new mean is `r round(newmean, digits = 2)`, and the new median is `r round(newmedian, digits = 2)`. After imputing missing values, the histogram has shifted to the right, likely because any previous NA values have now been replaced with non-zero values. 
+
+ 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+The following code adds a variable called "weekday" to the original data. It assigns a value of "weekend" if the weekday is a Saturday or Sunday, and a weekday if it is any non-NA value.
+
+The code the generates a panel plot of the mean steps at each interval for weekdays versus weekends.
+```{r}
+#Add a column for the weekday
+df <- df %>% mutate(weekday = case_when(
+  weekdays(date) == "Saturday" | weekdays(date) == "Sunday" ~ "weekend",
+  is.na(weekdays(date)) ~ NA,
+  TRUE ~ "weekday"
+))
+
+ggplot(data = df, aes(x = interval, y = steps, color = weekday)) +
+  stat_summary(fun = mean, geom = "line") +
+  facet_wrap(facets = weekday ~., ncol = 1, nrow = 2 )
+```
+It appears that, on weekends, there are more average steps in the middle of the day, whereas for weekdays, there are fewer average steps in the middle of the day.
